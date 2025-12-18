@@ -1,0 +1,13 @@
+# zero.half
+
+1 = \x.\y.x
+0 = \x.\y.y
+
+:show 0
+:show 0
+:show 1
+:show 1
+:show 0
+:show 0
+:show 0
+:show 0

@@ -1,0 +1,22 @@
+1 = \x.\y.x
+0 = \x.\y.y
+
+byte = \a.\b.\c.\d.\e.\f.\g.\h.0 (:show a) (0 (:show b) (0 (:show c) (0 (:show d) (0 (:show e) (0 (:show f) (0 (:show g) (:show h)))))))
+
+H = byte 0 1 0 0 1 0 0 0
+i = byte 0 1 1 0 1 0 0 1
+newline = byte 0 0 0 0 1 0 1 0
+
+H i newline
+
+char0 = byte 0 0 1 1 0 0 0 0
+
+:show 0 # test
+:show 0
+:show 1
+:show 1
+:show 0
+:show 0
+:show 0
+:show 0
+newline
