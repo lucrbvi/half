@@ -45,6 +45,18 @@ extern "C" {
         return runtime->size();
     }
 
+    void runtimeRegisterBuiltin(Runtime* runtime, const char* name, BuiltinCallback callback, void* userdata) {
+        runtime->registerBuiltin(std::string(name), callback, userdata);
+    }
+
+    int runtimeHasBuiltin(Runtime* runtime, const char* name) {
+        return runtime->hasBuiltin(std::string(name)) ? 1 : 0;
+    }
+
+    Function* runtimeCallBuiltin(Runtime* runtime, const char* name, Function* arg) {
+        return runtime->callBuiltin(std::string(name), arg);
+    }
+
     Parser* createParser(const char* source, Runtime* runtime) {
         return new Parser(std::string(source), runtime);
     }

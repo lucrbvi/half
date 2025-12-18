@@ -6,6 +6,11 @@
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
+#include <functional>
+
+class Function;
+
+typedef Function* (*BuiltinCallback)(Function* arg, void* userdata);
 
 class Function {
 private:
@@ -46,6 +51,7 @@ public:
 class Runtime {
 private:
     std::vector<std::unique_ptr<Function>> vars;
+    std::unordered_map<std::string, std::pair<BuiltinCallback, void*>> builtins;
 
 public:
     Runtime() = default;
@@ -69,22 +75,36 @@ public:
     int size() const {
         return vars.size();
     }
+
+    void registerBuiltin(const std::string& name, BuiltinCallback callback, void* userdata = nullptr) {
+        builtins[name] = {callback, userdata};
+    }
+
+    bool hasBuiltin(const std::string& name) const {
+        return builtins.find(name) != builtins.end();
+    }
+
+    Function* callBuiltin(const std::string& name, Function* arg) {
+        auto it = builtins.find(name);
+        if (it == builtins.end()) return nullptr;
+        return it->second.first(arg, it->second.second);
+    }
 };
 
 class Program {
 public:
     std::vector<std::pair<std::string, Function*>> statements;
-    
-    Program(std::vector<std::pair<std::string, Function*>> stmts) 
+
+    Program(std::vector<std::pair<std::string, Function*>> stmts)
         : statements(std::move(stmts)) {}
-    
+
     int size() const { return statements.size(); }
-    
+
     const char* getName(int index) const {
         if (index < 0 || static_cast<size_t>(index) >= statements.size()) return nullptr;
         return statements[index].first.c_str();
     }
-    
+
     Function* getFunction(int index) const {
         if (index < 0 || static_cast<size_t>(index) >= statements.size()) return nullptr;
         return statements[index].second;
@@ -93,7 +113,6 @@ public:
 
 class Parser {
 private:
-    Runtime* runtime;
     std::string source;
     size_t pos;
     std::unordered_map<std::string, int> symbols;
@@ -142,8 +161,10 @@ private:
     }
 
 public:
-    Parser(std::string source, Runtime* rt = nullptr) 
-        : runtime(rt ? rt : new Runtime()), source(source), pos(0) {}
+    Runtime* runtime;
+
+    Parser(std::string source, Runtime* rt = nullptr)
+        : source(source), pos(0), runtime(rt ? rt : new Runtime()) {}
 
     /*
      * Half Grammar:
@@ -222,6 +243,11 @@ public:
             throw std::runtime_error("except ':'");
         }
         std::string name = parseIdentifier();
+
+        if (!runtime->hasBuiltin(name)) {
+            throw std::runtime_error("Unknown builtin: " + name);
+        }
+
         Function* arg = parseExpression();
         return {name, arg};
     }
@@ -254,6 +280,7 @@ typedef struct Function Function;
 typedef struct Runtime Runtime;
 typedef struct Program Program;
 typedef struct Parser Parser;
+typedef Function* (*BuiltinCallback)(Function* arg, void* userdata);
 #endif
 
 Function *createFunction(int id, Function *body);
@@ -268,6 +295,9 @@ void destroyRuntime(Runtime* runtime);
 void runtimeSet(Runtime* runtime, Function* fn);
 Function* runtimeGet(Runtime* runtime, int index);
 int runtimeSize(Runtime* runtime);
+void runtimeRegisterBuiltin(Runtime* runtime, const char* name, BuiltinCallback callback, void* userdata);
+int runtimeHasBuiltin(Runtime* runtime, const char* name);
+Function* runtimeCallBuiltin(Runtime* runtime, const char* name, Function* arg);
 
 Parser* createParser(const char* source, Runtime* runtime);
 void destroyParser(Parser* parser);
