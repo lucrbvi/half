@@ -1,7 +1,7 @@
 # Compiler settings
 CXX = clang++
 CC = clang
-CXXFLAGS = -Wall -Wextra
+CXXFLAGS = -Wall -Wextra -O3 -flto -march=native
 CFLAGS = -Wall -Wextra
 
 # Directories
@@ -35,10 +35,12 @@ $(LIB_OBJ): $(LIB_SRC) | $(OBJ_DIR)
 # Build test binary (C program using C++ library)
 $(TEST_BIN): $(TEST_SRC) $(LIB_OBJ) | $(DIST_DIR)
 	$(CC) $(CFLAGS) $(SRC_DIR)/$(TEST_SRC) $(LIB_OBJ) -o $@ $(LDFLAGS) -lstdc++
+	strip $@
 
 # Build main binary (C++ program)
 $(MAIN_BIN): $(MAIN_SRC) $(LIB_OBJ) | $(DIST_DIR)
 	$(CXX) $(CXXFLAGS) $(SRC_DIR)/$(MAIN_SRC) $(LIB_OBJ) -o $@ $(LDFLAGS)
+	strip $@
 
 # Clean build artifacts
 clean:
