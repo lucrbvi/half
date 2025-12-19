@@ -1,8 +1,13 @@
 #include "libhalf.h"
+#include <cstring>
 
 extern "C" {
     Function *createFunction(int id, Function *body) {
         return new Function(id, body);
+    }
+
+    Function *createApplication(Function *func, Function *arg) {
+        return new Function(func, arg);
     }
 
     void destroyFunction(Function *func) {
@@ -13,6 +18,10 @@ extern "C" {
         return source->reduce(replacer);
     }
 
+    Function* evalFunction(Function* func) {
+        return func->eval();
+    }
+
     int getFunctionId(Function* func) {
         return func->id;
     }
@@ -21,8 +30,24 @@ extern "C" {
         return func->body;
     }
 
+    Function* getFunctionArg(Function* func) {
+        return func->arg;
+    }
+
     Function* cloneFunction(Function* func) {
         return func->clone();
+    }
+
+    int functionIsVar(Function* func) {
+        return func->isVar() ? 1 : 0;
+    }
+
+    int functionIsLambda(Function* func) {
+        return func->isLambda() ? 1 : 0;
+    }
+
+    int functionIsApp(Function* func) {
+        return func->isApp() ? 1 : 0;
     }
 
     Runtime *createRuntime() {
@@ -50,11 +75,29 @@ extern "C" {
     }
 
     int runtimeHasBuiltin(Runtime* runtime, const char* name) {
-        return runtime->hasBuiltin(name) ? 1 : 0;
+        return runtime->isBuiltin(name) ? 1 : 0;
     }
 
     Function* runtimeCallBuiltin(Runtime* runtime, const char* name, Function* arg) {
         return runtime->callBuiltin(name, arg);
+    }
+
+    void runtimeRun(Runtime* runtime, const char* source) {
+        Parser p(std::string(source), runtime);
+
+        while (p.hasMore()) {
+            auto [name, func] = p.parseNextStatement();
+
+            if (runtime->isBuiltin(name)) {
+                Function* evaluated = func->eval();
+                runtime->callBuiltin(name, evaluated);
+                delete evaluated;
+            } else {
+                Function* evaluated = func->eval();
+                runtime->bind(name, evaluated);
+            }
+            delete func;
+        }
     }
 
     Parser* createParser(const char* source, Runtime* runtime) {
@@ -65,27 +108,14 @@ extern "C" {
         delete parser;
     }
 
-    Function* parserParseExpression(Parser* parser) {
-        return parser->parseExpression();
+    const char* functionToString(Function* func) {
+        std::string str = func->toString();
+        char* result = new char[str.length() + 1];
+        strcpy(result, str.c_str());
+        return result;
     }
 
-    Program* parserParseProgram(Parser* parser) {
-        return new Program(parser->parseProgram());
-    }
-
-    void destroyProgram(Program* program) {
-        delete program;
-    }
-
-    int programSize(Program* program) {
-        return program->size();
-    }
-
-    const char* programGetName(Program* program, int index) {
-        return program->getName(index);
-    }
-
-    Function* programGetFunction(Program* program, int index) {
-        return program->getFunction(index);
+    void freeString(const char* str) {
+        delete[] (char*)str;
     }
 }

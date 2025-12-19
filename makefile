@@ -2,7 +2,7 @@
 CXX = clang++
 CC = clang
 
-CXXFLAGS_BASE = -Wall -Wextra -O3
+CXXFLAGS_BASE = -std=c++20 -Wall -Wextra -O3
 CFLAGS = -Wall -Wextra
 
 # Detect WSL

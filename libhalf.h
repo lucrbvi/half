@@ -8,9 +8,17 @@
 #include <unordered_map>
 #include <functional>
 
+#define APP_ID -1  // reserved ID for applications
+
 class Function {
 private:
     Function* substitute(int var_id, Function* replacement) {
+        if (id == APP_ID) {
+            return new Function(
+                body->substitute(var_id, replacement),
+                arg->substitute(var_id, replacement)
+            );
+        }
         if (!body) {
             return (id == var_id) ? replacement->clone() : clone();
         }
@@ -20,36 +28,87 @@ private:
 
 public:
     int id;
-    Function *body;
+    Function* body;
+    Function* arg;
 
-    Function(int id, Function *body = nullptr) : id(id), body(body) {}
+    Function(int id, Function* body = nullptr)
+        : id(id), body(body), arg(nullptr) {}
 
-    ~Function() { if (body) delete body; }
+    Function(Function* func, Function* argument)
+        : id(APP_ID), body(func), arg(argument) {}
+
+    ~Function() {
+        if (body) delete body;
+        if (arg) delete arg;
+    }
+
+    bool isVar() const { return id != APP_ID && body == nullptr; }
+    bool isLambda() const { return id != APP_ID && body != nullptr; }
+    bool isApp() const { return id == APP_ID; }
 
     Function* clone() {
+        if (isApp()) {
+            return new Function(body->clone(), arg->clone());
+        }
         return new Function(id, body ? body->clone() : nullptr);
     }
 
-    // β-reduction
+    // β-reduction: (\x.M) N -> M[x := N]
     Function* reduce(Function* replacer) {
-        if (!body) return clone(); // var -> no reduction
+        if (!isLambda()) return clone(); // only lambdas can be reduced
         return body->substitute(id, replacer);
+    }
+
+    Function* eval() {
+        if (isVar()) {
+            return clone();
+        }
+
+        if (isLambda()) {
+            Function* evalBody = body->eval();
+            return new Function(id, evalBody);
+        }
+
+        if (isApp()) {
+            Function* evalFunc = body->eval();
+            Function* evalArg = arg->eval();
+
+            if (evalFunc->isLambda()) {
+                Function* reduced = evalFunc->reduce(evalArg);
+                delete evalFunc;
+                delete evalArg;
+                Function* result = reduced->eval();
+                delete reduced;
+                return result;
+            }
+
+            return new Function(evalFunc, evalArg);
+        }
+
+        return clone();
+    }
+
+    std::string toString() const {
+        if (isVar()) {
+            return std::to_string(id);
+        }
+        if (isLambda()) {
+            return "(\\" + std::to_string(id) + "." + body->toString() + ")";
+        }
+        if (isApp()) {
+            return "(" + body->toString() + " " + arg->toString() + ")";
+        }
+        return "?";
     }
 };
 
 typedef Function* (*Fn)(Function*);
 
-/*
- * Runtime class
- * - Manage functions and their ids
- * - Is used with the parser
- *
- * IS NOT MEANT TO BE USED DIRECTLY
- */
 class Runtime {
 private:
     std::vector<std::unique_ptr<Function>> vars;
     std::unordered_map<std::string, Fn> builtins;
+    std::unordered_map<std::string, Function*> bindings;  // Variables nommées
 
 public:
     Runtime() = default;
@@ -63,13 +122,6 @@ public:
         return vars[index].get();
     }
 
-    int getFnId(Function* fn) {
-        for (size_t i = 0; i < vars.size(); ++i) {
-            if (vars[i].get() == fn) return static_cast<int>(i);
-        }
-        return -1;
-    }
-
     int size() const {
         return vars.size();
     }
@@ -78,41 +130,40 @@ public:
         builtins[name] = callback;
     }
 
-    bool hasBuiltin(std::string name) const {
+    bool isBuiltin(const std::string& name) const {
         return builtins.find(name) != builtins.end();
     }
 
-    Function* callBuiltin(std::string name, Function* arg) {
+    Function* callBuiltin(const std::string& name, Function* arg) {
         auto it = builtins.find(name);
         if (it == builtins.end()) return nullptr;
         return it->second(arg);
     }
-};
 
-class Program {
-public:
-    std::vector<std::pair<std::string, Function*>> statements;
+    void bind(const std::string& name, Function* fn) {
+        bindings[name] = fn;
+    }
 
-    Program(std::vector<std::pair<std::string, Function*>> stmts)
-        : statements(std::move(stmts)) {}
+    Function* lookup(const std::string& name) {
+        auto it = bindings.find(name);
+        if (it == bindings.end()) return nullptr;
+        return it->second;
+    }
 
-    ~Program() {
-        for (auto& stmt : statements) {
-            delete stmt.second;
+    void interpret(std::vector<std::pair<std::string, Function*>>& program) {
+        for (auto& [name, func] : program) {
+            if (isBuiltin(name)) {
+                Function* evaluated = func->eval();
+                callBuiltin(name, evaluated);
+                delete evaluated;
+            } else {
+                Function* evaluated = func->eval();
+                bind(name, evaluated);
+            }
         }
     }
 
-    int size() const { return statements.size(); }
-
-    const char* getName(int index) const {
-        if (index < 0 || static_cast<size_t>(index) >= statements.size()) return nullptr;
-        return statements[index].first.c_str();
-    }
-
-    Function* getFunction(int index) const {
-        if (index < 0 || static_cast<size_t>(index) >= statements.size()) return nullptr;
-        return statements[index].second;
-    }
+    void run(const std::string& source); // implemented after
 };
 
 class Parser {
@@ -120,10 +171,26 @@ private:
     std::string source;
     size_t pos;
     std::unordered_map<std::string, int> symbols;
+    int nextId;
 
     void skipSpaces() {
-        while (pos < source.length() && std::isspace(source[pos])) {
-            pos++;
+        while (pos < source.length()) {
+            if (std::isspace(source[pos])) {
+                pos++;
+                continue;
+            }
+
+            if (source[pos] == '#') { // ignore comments
+                while (pos < source.length() && source[pos] != '\n') {
+                    pos++;
+                }
+                if (pos < source.length() && source[pos] == '\n') {
+                    pos++;
+                }
+                continue;
+            }
+
+            break;
         }
     }
 
@@ -155,48 +222,76 @@ private:
             id += source[pos++];
         }
 
-        if (id.empty()) throw std::runtime_error("Unknown ID at position " + std::to_string(pos));
+        if (id.empty()) throw std::runtime_error("Expected identifier at position " + std::to_string(pos));
         return id;
     }
 
-    bool isEndOfExpr() {
+    bool isAtomStart() {
         char c = peek();
-        return c == '\0' || c == '=' || c == ':' || c == ')' || c == '\n';
+        if (c == '\0' || c == '=' || c == ':' || c == ')') {
+            return false;
+        }
+        return c == '\\' || c == '(' || std::isalnum(c) || c == '_';
+    }
+
+    bool looksLikeNewStatement() {
+        size_t savedPos = pos;
+        skipSpaces();
+
+        if (std::isalnum(source[pos]) || source[pos] == '_') {
+            std::string id;
+            while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_')) {
+                id += source[pos++];
+            }
+            skipSpaces();
+            bool isAssignment = (pos < source.length() && source[pos] == '=');
+            pos = savedPos;
+            return isAssignment;
+        }
+
+        pos = savedPos;
+        return false;
     }
 
 public:
     Runtime* runtime;
 
-    Parser(std::string source, Runtime* rt = nullptr)
-        : source(source), pos(0), runtime(rt ? rt : new Runtime()) {}
+    Parser(const std::string& source, Runtime* rt = nullptr)
+        : source(source), pos(0), nextId(0), runtime(rt ? rt : new Runtime()) {}
 
     /*
      * Half Grammar:
      *
-     * program := (statement)*
-     * statement := assignment | builtin
-     * assignment := identifier '=' expression
-     * builtin := ':' identifier expression
-     * expression := lambda | application | atom
-     * lambda := '\' identifier '.' expression
-     * application := expression expression
-     * atom := identifier | '(' expression ')'
-     * identifier := [a-zA-Z0-9]+
+     * program     := (statement)*
+     * statement   := assignment | builtin
+     * assignment  := identifier '=' expression
+     * builtin     := ':' identifier expression
+     * expression  := application
+     * application := atom+                      // f x y = ((f x) y)
+     * atom        := lambda | '(' expression ')' | identifier
+     * lambda      := '\' identifier '.' expression
+     * identifier  := [a-zA-Z_][a-zA-Z0-9_]*
      */
 
-    Function* parseExpression() {
+    Function* parseAtom() {
         if (peek() == '\\') {
             return parseLambda();
         }
         if (peek() == '(') {
             consume();
-            auto expr = parseExpression();
+            auto expr = parseApplication();
             if (!match(')')) {
-                throw std::runtime_error("except ')'");
+                throw std::runtime_error("Expected ')'");
             }
             return expr;
         }
         std::string name = parseIdentifier();
+
+        Function* bound = runtime->lookup(name);
+        if (bound) {
+            return bound->clone();
+        }
+
         auto it = symbols.find(name);
         if (it == symbols.end()) {
             throw std::runtime_error("Undefined symbol: " + name);
@@ -204,13 +299,24 @@ public:
         return new Function(it->second);
     }
 
+    Function* parseApplication() {
+        Function* left = parseAtom();
+
+        while (isAtomStart() && !looksLikeNewStatement()) {
+            Function* right = parseAtom();
+            left = new Function(left, right);  // Application
+        }
+
+        return left;
+    }
+
     Function* parseLambda() {
         if (!match('\\')) {
-            throw std::runtime_error("except '\\'");
+            throw std::runtime_error("Expected '\\'");
         }
         std::string param = parseIdentifier();
         if (!match('.')) {
-            throw std::runtime_error("except '.'");
+            throw std::runtime_error("Expected '.'");
         }
 
         int oldId = -1;
@@ -219,10 +325,10 @@ public:
             oldId = oldIt->second;
         }
 
-        int id = runtime->size();
+        int id = nextId++;
         symbols[param] = id;
 
-        Function* body = parseExpression();
+        Function* body = parseApplication();
 
         if (oldId >= 0) {
             symbols[param] = oldId;
@@ -236,23 +342,23 @@ public:
     std::pair<std::string, Function*> parseAssignment() {
         std::string name = parseIdentifier();
         if (!match('=')) {
-            throw std::runtime_error("except '='");
+            throw std::runtime_error("Expected '='");
         }
-        Function* expr = parseExpression();
+        Function* expr = parseApplication();
         return {name, expr};
     }
 
     std::pair<std::string, Function*> parseBuiltin() {
         if (!match(':')) {
-            throw std::runtime_error("except ':'");
+            throw std::runtime_error("Expected ':'");
         }
         std::string name = parseIdentifier();
 
-        if (!runtime->hasBuiltin(name)) {
+        if (!runtime->isBuiltin(name)) {
             throw std::runtime_error("Unknown builtin: " + name);
         }
 
-        Function* arg = parseExpression();
+        Function* arg = parseApplication();
         return {name, arg};
     }
 
@@ -276,23 +382,60 @@ public:
 
         return statements;
     }
+
+    bool hasMore() {
+        skipSpaces();
+        return pos < source.length();
+    }
+
+    std::pair<std::string, Function*> parseNextStatement() {
+        skipSpaces();
+        if (pos >= source.length()) {
+            throw std::runtime_error("No more statements");
+        }
+        return parseStatement();
+    }
 };
+
+inline void Runtime::run(const std::string& source) {
+    Parser parser(source, this);
+
+    while (parser.hasMore()) {
+        auto [name, func] = parser.parseNextStatement();
+
+        if (isBuiltin(name)) {
+            Function* evaluated = func->eval();
+            callBuiltin(name, evaluated);
+            delete evaluated;
+            delete func;
+        } else {
+            Function* evaluated = func->eval();
+            bind(name, evaluated);
+            delete func;
+        }
+    }
+}
 
 extern "C" {
 #else
 typedef struct Function Function;
 typedef struct Runtime Runtime;
-typedef struct Program Program;
 typedef struct Parser Parser;
 typedef Function* (*Fn)(Function*);
 #endif
 
 Function *createFunction(int id, Function *body);
+Function *createApplication(Function *func, Function *arg);
 void destroyFunction(Function *func);
 Function* reduceFunction(Function* source, Function* replacer);
+Function* evalFunction(Function* func);
 int getFunctionId(Function* func);
 Function* getFunctionBody(Function* func);
+Function* getFunctionArg(Function* func);
 Function* cloneFunction(Function* func);
+int functionIsVar(Function* func);
+int functionIsLambda(Function* func);
+int functionIsApp(Function* func);
 
 Runtime *createRuntime();
 void destroyRuntime(Runtime* runtime);
@@ -302,16 +445,13 @@ int runtimeSize(Runtime* runtime);
 void runtimeRegisterBuiltin(Runtime* runtime, const char* name, Fn callback);
 int runtimeHasBuiltin(Runtime* runtime, const char* name);
 Function* runtimeCallBuiltin(Runtime* runtime, const char* name, Function* arg);
+void runtimeRun(Runtime* runtime, const char* source);
 
 Parser* createParser(const char* source, Runtime* runtime);
 void destroyParser(Parser* parser);
-Function* parserParseExpression(Parser* parser);
-Program* parserParseProgram(Parser* parser);
 
-void destroyProgram(Program* program);
-int programSize(Program* program);
-const char* programGetName(Program* program, int index);
-Function* programGetFunction(Program* program, int index);
+void freeString(const char* str);
+const char* functionToString(Function* func);
 
 #ifdef __cplusplus
 }

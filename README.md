@@ -1,13 +1,13 @@
 # Half
 
-Half is a minimal functional programming language. It's based on untyped lambda-calculus.
+Half is a minimal functional programming language written in C++20 with a valid C99 API. It's based on untyped [lambda-calculus](https://en.wikipedia.org/wiki/Lambda_calculus).
 
 Everything is a function. To interact with the environment Half is using Church's booleans with the builtin function `:show`. It means you can only interact in binary with the computer.
 
 Here is a program in Half that output "0" in the terminal:
 
-```half
-# zero.half
+```hl
+# zero.hl
 
 1 = \x.\y.x
 0 = \x.\y.y
@@ -23,7 +23,7 @@ Here is a program in Half that output "0" in the terminal:
 ```
 
 ```bash
-./half zero.half
+./half zero.hl
 => 0%
 ```
 
