@@ -33,3 +33,18 @@ In Half there is only three things:
 3. Body (after a dot `.`), it can contain another function
 
 To declare a function you need to use those three things: `x = \x.x`.
+
+## Get started with Half
+
+### Building Half
+
+To build Half you need to have a C++20 compiler and Make installed.
+
+If you do not use [Clang and Clang++](https://clang.llvm.org), please modify the Makefile to use your preferred compiler.
+
+Then you can juste run `make` to build Half. It will produce three binary files in the `./dist` directory:
+- `./dist/main` (from `./main.cpp`): the interactive shell
+- `./dist/test` (from `./test.c`): a basic suite of tests
+- `./dist/libhalf.o` (from `./libhalf.h` and `./libhalf.cpp`): the Half library
+
+Then you can use Half how you want. Have fun!
