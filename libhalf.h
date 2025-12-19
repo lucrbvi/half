@@ -8,10 +8,6 @@
 #include <unordered_map>
 #include <functional>
 
-class Function;
-
-typedef Function* (*BuiltinCallback)(Function* arg, void* userdata);
-
 class Function {
 private:
     Function* substitute(int var_id, Function* replacement) {
@@ -41,6 +37,8 @@ public:
     }
 };
 
+typedef Function* (*Fn)(Function*);
+
 /*
  * Runtime class
  * - Manage functions and their ids
@@ -51,7 +49,7 @@ public:
 class Runtime {
 private:
     std::vector<std::unique_ptr<Function>> vars;
-    std::unordered_map<std::string, std::pair<BuiltinCallback, void*>> builtins;
+    std::unordered_map<std::string, Fn> builtins;
 
 public:
     Runtime() = default;
@@ -76,18 +74,18 @@ public:
         return vars.size();
     }
 
-    void registerBuiltin(const std::string& name, BuiltinCallback callback, void* userdata = nullptr) {
-        builtins[name] = {callback, userdata};
+    void registerBuiltin(const char* name, Fn callback) {
+        builtins[name] = callback;
     }
 
-    bool hasBuiltin(const std::string& name) const {
+    bool hasBuiltin(std::string name) const {
         return builtins.find(name) != builtins.end();
     }
 
-    Function* callBuiltin(const std::string& name, Function* arg) {
+    Function* callBuiltin(std::string name, Function* arg) {
         auto it = builtins.find(name);
         if (it == builtins.end()) return nullptr;
-        return it->second.first(arg, it->second.second);
+        return it->second(arg);
     }
 };
 
@@ -97,6 +95,12 @@ public:
 
     Program(std::vector<std::pair<std::string, Function*>> stmts)
         : statements(std::move(stmts)) {}
+
+    ~Program() {
+        for (auto& stmt : statements) {
+            delete stmt.second;
+        }
+    }
 
     int size() const { return statements.size(); }
 
@@ -151,7 +155,7 @@ private:
             id += source[pos++];
         }
 
-        if (id.empty()) throw std::runtime_error("Unknown ID " + std::to_string(pos));
+        if (id.empty()) throw std::runtime_error("Unknown ID at position " + std::to_string(pos));
         return id;
     }
 
@@ -280,7 +284,7 @@ typedef struct Function Function;
 typedef struct Runtime Runtime;
 typedef struct Program Program;
 typedef struct Parser Parser;
-typedef Function* (*BuiltinCallback)(Function* arg, void* userdata);
+typedef Function* (*Fn)(Function*);
 #endif
 
 Function *createFunction(int id, Function *body);
@@ -295,7 +299,7 @@ void destroyRuntime(Runtime* runtime);
 void runtimeSet(Runtime* runtime, Function* fn);
 Function* runtimeGet(Runtime* runtime, int index);
 int runtimeSize(Runtime* runtime);
-void runtimeRegisterBuiltin(Runtime* runtime, const char* name, BuiltinCallback callback, void* userdata);
+void runtimeRegisterBuiltin(Runtime* runtime, const char* name, Fn callback);
 int runtimeHasBuiltin(Runtime* runtime, const char* name);
 Function* runtimeCallBuiltin(Runtime* runtime, const char* name, Function* arg);
 

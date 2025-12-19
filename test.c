@@ -9,7 +9,7 @@ int main() {
 
     printf("Result: %d\n", getFunctionId(result));
 
-    char source[] = ":yo \\x.x";
+    char source[] = "yo = \\x.x";
     Parser *parser = createParser(source, NULL);
     Program *program = parserParseProgram(parser);
 

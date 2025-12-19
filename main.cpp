@@ -9,7 +9,7 @@ int main() {
 
     printf("Result: %d\n", result->id);
 
-    std::string source = ":yo \\x.x";
+    std::string source = "yo = \\x.x";
     std::unique_ptr<Parser> parser(new Parser(source));
     auto program = parser->parseProgram();
 

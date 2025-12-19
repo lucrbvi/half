@@ -1,8 +1,19 @@
 # Compiler settings
 CXX = clang++
 CC = clang
-CXXFLAGS = -Wall -Wextra -O3 -flto -march=native
+
+CXXFLAGS_BASE = -Wall -Wextra -O3
 CFLAGS = -Wall -Wextra
+
+# Detect WSL
+IS_WSL := $(shell grep -i microsoft /proc/version >/dev/null 2>&1 && echo 1 || echo 0)
+
+ifeq ($(IS_WSL), 1)
+  CXXFLAGS = $(CXXFLAGS_BASE)
+  $(info Building for WSL - optimization flags disabled)
+else
+  CXXFLAGS = $(CXXFLAGS_BASE) -flto -march=native
+endif
 
 # Directories
 SRC_DIR = .
