@@ -267,9 +267,8 @@ private:
 
     bool looksLikeNewStatement(size_t startPos) {
         size_t savedPos = pos;
-        pos = startPos;  // Start from the position BEFORE isAtomStart() was called
+        pos = startPos;
 
-        // Check if there's a newline between start position and next token
         bool crossedNewline = false;
         while (pos < source.length() && std::isspace(source[pos])) {
             if (source[pos] == '\n') {
@@ -278,14 +277,13 @@ private:
             pos++;
         }
 
-        // Skip comments after potential newline
         while (pos < source.length() && source[pos] == '#') {
             while (pos < source.length() && source[pos] != '\n') pos++;
             if (pos < source.length() && source[pos] == '\n') {
                 crossedNewline = true;
                 pos++;
             }
-            // Skip any more whitespace after comment
+
             while (pos < source.length() && std::isspace(source[pos])) {
                 if (source[pos] == '\n') crossedNewline = true;
                 pos++;
@@ -306,8 +304,6 @@ private:
             bool isAssignment = (pos < source.length() && source[pos] == '=');
             pos = savedPos;
 
-            // It's a new statement if it's an assignment OR
-            // if we crossed a newline and this identifier is not a lambda parameter
             if (isAssignment) {
                 return true;
             }
@@ -372,12 +368,10 @@ public:
         Function* left = parseAtom();
 
         while (true) {
-            // Save position BEFORE peek()/skipSpaces() modifies it
             size_t posBeforePeek = pos;
 
             if (!isAtomStart()) break;
             if (looksLikeNewStatement(posBeforePeek)) {
-                // Reset pos so parent can rescan correctly
                 pos = posBeforePeek;
                 break;
             }
