@@ -8,15 +8,3 @@ i = byte 0 1 1 0 1 0 0 1
 newline = byte 0 0 0 0 1 0 1 0
 
 H i newline
-
-char0 = byte 0 0 1 1 0 0 0 0
-
-:show 0 # test
-:show 0
-:show 1
-:show 1
-:show 0
-:show 0
-:show 0
-:show 0
-newline

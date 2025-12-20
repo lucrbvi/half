@@ -19,7 +19,10 @@ extern "C" {
     }
 
     Function* evalFunction(Function* func) {
-        return func->eval();
+        Runtime* runtime = new Runtime();
+        Function* result = func->eval(runtime);
+        delete runtime;
+        return result;
     }
 
     int getFunctionId(Function* func) {
@@ -88,12 +91,15 @@ extern "C" {
         while (p.hasMore()) {
             auto [name, func] = p.parseNextStatement();
 
-            if (runtime->isBuiltin(name)) {
-                Function* evaluated = func->eval();
+            if (name.empty()) {
+                Function* evaluated = func->eval(runtime);
+                delete evaluated;
+            } else if (runtime->isBuiltin(name)) {
+                Function* evaluated = func->eval(runtime);
                 runtime->callBuiltin(name, evaluated);
                 delete evaluated;
             } else {
-                Function* evaluated = func->eval();
+                Function* evaluated = func->eval(runtime);
                 runtime->bind(name, evaluated);
             }
             delete func;

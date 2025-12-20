@@ -2,7 +2,13 @@
 
 Half is a minimal functional programming language written in C++20 with a valid C99 API. It's based on untyped [lambda-calculus](https://en.wikipedia.org/wiki/Lambda_calculus).
 
-Everything is a function. To interact with the environment Half is using Church's booleans with the builtin function `:show`. It means you can only interact in binary with the computer.
+Everything is a function. To make Half useful we need to have some impure functions. These functions are called "builtins". There are several builtins:
+- `:show`: send a single bit to the terminal based on the Church's booleans it receives (0=false, 1=true)
+- `:read` (not implemented yet): return to the program a Church's boolean based on the program call arguments.
+
+It means a Half program is a pure function.
+
+### Examples
 
 Here is a program in Half that output "0" in the terminal:
 
@@ -27,18 +33,11 @@ Here is a program in Half that output "0" in the terminal:
 => 0%
 ```
 
-In Half there is only three things:
-1. Values (eg: x, foo, bar, 15, ...)
-2. Function declarator with `\`
-3. Body (after a dot `.`), it can contain another function
-
-To declare a function you need to use those three things: `x = \x.x`.
-
 ## Get started with Half
 
 ### Building Half
 
-To build Half you need to have a C++20 compiler and Make installed.
+To build Half you need to have a [C++20](https://isocpp.org/) compiler and [Make](https://www.gnu.org/software/make/) installed.
 
 If you do not use [Clang and Clang++](https://clang.llvm.org), please modify the Makefile to use your preferred compiler.
 

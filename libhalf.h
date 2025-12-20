@@ -8,7 +8,9 @@
 #include <unordered_map>
 #include <functional>
 
-#define APP_ID -1  // reserved ID for applications
+#define APP_ID -1
+
+class Runtime;
 
 class Function {
 private:
@@ -53,40 +55,12 @@ public:
         return new Function(id, body ? body->clone() : nullptr);
     }
 
-    // β-reduction: (\x.M) N -> M[x := N]
     Function* reduce(Function* replacer) {
-        if (!isLambda()) return clone(); // only lambdas can be reduced
+        if (!isLambda()) return clone();
         return body->substitute(id, replacer);
     }
 
-    Function* eval() {
-        if (isVar()) {
-            return clone();
-        }
-
-        if (isLambda()) {
-            Function* evalBody = body->eval();
-            return new Function(id, evalBody);
-        }
-
-        if (isApp()) {
-            Function* evalFunc = body->eval();
-            Function* evalArg = arg->eval();
-
-            if (evalFunc->isLambda()) {
-                Function* reduced = evalFunc->reduce(evalArg);
-                delete evalFunc;
-                delete evalArg;
-                Function* result = reduced->eval();
-                delete reduced;
-                return result;
-            }
-
-            return new Function(evalFunc, evalArg);
-        }
-
-        return clone();
-    }
+    Function* eval(Runtime* runtime);
 
     std::string toString() const {
         if (isVar()) {
@@ -108,7 +82,8 @@ class Runtime {
 private:
     std::vector<std::unique_ptr<Function>> vars;
     std::unordered_map<std::string, Fn> builtins;
-    std::unordered_map<std::string, Function*> bindings;  // Variables nommées
+    std::unordered_map<std::string, Function*> bindings;
+    std::unordered_map<int, std::string> builtinIds;
 
 public:
     Runtime() = default;
@@ -150,21 +125,76 @@ public:
         return it->second;
     }
 
+    void registerBuiltinId(int id, const std::string& name) {
+        builtinIds[id] = name;
+    }
+
+    std::string getBuiltinName(int id) const {
+        auto it = builtinIds.find(id);
+        if (it != builtinIds.end()) {
+            return it->second;
+        }
+        return "";
+    }
+
     void interpret(std::vector<std::pair<std::string, Function*>>& program) {
         for (auto& [name, func] : program) {
             if (isBuiltin(name)) {
-                Function* evaluated = func->eval();
+                Function* evaluated = func->eval(this);
                 callBuiltin(name, evaluated);
                 delete evaluated;
             } else {
-                Function* evaluated = func->eval();
+                Function* evaluated = func->eval(this);
                 bind(name, evaluated);
             }
         }
     }
 
-    void run(const std::string& source); // implemented after
+    void run(const std::string& source);
 };
+
+inline Function* Function::eval(Runtime* runtime) {
+    if (isVar()) {
+        std::string builtinName = runtime->getBuiltinName(id);
+        if (!builtinName.empty()) {
+            return clone();
+        }
+        return clone();
+    }
+
+    if (isLambda()) {
+        return clone();
+    }
+
+    if (isApp()) {
+        Function* evalFunc = body->eval(runtime);
+        Function* evalArg = arg->eval(runtime);
+
+        std::string builtinName = runtime->getBuiltinName(evalFunc->id);
+        if (!builtinName.empty() && evalFunc->isVar()) {
+            Function* result = runtime->callBuiltin(builtinName, evalArg);
+            delete evalFunc;
+            delete evalArg;
+            if (result) {
+                return result;
+            }
+            return new Function(evalFunc->id);
+        }
+
+        if (evalFunc->isLambda()) {
+            Function* reduced = evalFunc->reduce(evalArg);
+            delete evalFunc;
+            delete evalArg;
+            Function* result = reduced->eval(runtime);
+            delete reduced;
+            return result;
+        }
+
+        return new Function(evalFunc, evalArg);
+    }
+
+    return clone();
+}
 
 class Parser {
 private:
@@ -172,6 +202,7 @@ private:
     size_t pos;
     std::unordered_map<std::string, int> symbols;
     int nextId;
+    int nextBuiltinId;
 
     void skipSpaces() {
         while (pos < source.length()) {
@@ -180,7 +211,7 @@ private:
                 continue;
             }
 
-            if (source[pos] == '#') { // ignore comments
+            if (source[pos] == '#') {
                 while (pos < source.length() && source[pos] != '\n') {
                     pos++;
                 }
@@ -228,17 +259,45 @@ private:
 
     bool isAtomStart() {
         char c = peek();
-        if (c == '\0' || c == '=' || c == ':' || c == ')') {
+        if (c == '\0' || c == '=' || c == ')') {
             return false;
         }
-        return c == '\\' || c == '(' || std::isalnum(c) || c == '_';
+        return c == '\\' || c == '(' || c == ':' || std::isalnum(c) || c == '_';
     }
 
-    bool looksLikeNewStatement() {
+    bool looksLikeNewStatement(size_t startPos) {
         size_t savedPos = pos;
-        skipSpaces();
+        pos = startPos;  // Start from the position BEFORE isAtomStart() was called
 
-        if (std::isalnum(source[pos]) || source[pos] == '_') {
+        // Check if there's a newline between start position and next token
+        bool crossedNewline = false;
+        while (pos < source.length() && std::isspace(source[pos])) {
+            if (source[pos] == '\n') {
+                crossedNewline = true;
+            }
+            pos++;
+        }
+
+        // Skip comments after potential newline
+        while (pos < source.length() && source[pos] == '#') {
+            while (pos < source.length() && source[pos] != '\n') pos++;
+            if (pos < source.length() && source[pos] == '\n') {
+                crossedNewline = true;
+                pos++;
+            }
+            // Skip any more whitespace after comment
+            while (pos < source.length() && std::isspace(source[pos])) {
+                if (source[pos] == '\n') crossedNewline = true;
+                pos++;
+            }
+        }
+
+        if (pos < source.length() && source[pos] == ':') {
+            pos = savedPos;
+            return true;
+        }
+
+        if (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_')) {
             std::string id;
             while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_')) {
                 id += source[pos++];
@@ -246,7 +305,16 @@ private:
             skipSpaces();
             bool isAssignment = (pos < source.length() && source[pos] == '=');
             pos = savedPos;
-            return isAssignment;
+
+            // It's a new statement if it's an assignment OR
+            // if we crossed a newline and this identifier is not a lambda parameter
+            if (isAssignment) {
+                return true;
+            }
+            if (crossedNewline && symbols.find(id) == symbols.end()) {
+                return true;
+            }
+            return false;
         }
 
         pos = savedPos;
@@ -257,21 +325,7 @@ public:
     Runtime* runtime;
 
     Parser(const std::string& source, Runtime* rt = nullptr)
-        : source(source), pos(0), nextId(0), runtime(rt ? rt : new Runtime()) {}
-
-    /*
-     * Half Grammar:
-     *
-     * program     := (statement)*
-     * statement   := assignment | builtin
-     * assignment  := identifier '=' expression
-     * builtin     := ':' identifier expression
-     * expression  := application
-     * application := atom+                      // f x y = ((f x) y)
-     * atom        := lambda | '(' expression ')' | identifier
-     * lambda      := '\' identifier '.' expression
-     * identifier  := [a-zA-Z_][a-zA-Z0-9_]*
-     */
+        : source(source), pos(0), nextId(0), nextBuiltinId(-2), runtime(rt ? rt : new Runtime()) {}
 
     Function* parseAtom() {
         if (peek() == '\\') {
@@ -285,6 +339,21 @@ public:
             }
             return expr;
         }
+
+        if (peek() == ':') {
+            consume();
+            std::string name = parseIdentifier();
+
+            if (!runtime->isBuiltin(name)) {
+                throw std::runtime_error("Unknown builtin: " + name);
+            }
+
+            int builtinId = nextBuiltinId--;
+            runtime->registerBuiltinId(builtinId, name);
+
+            return new Function(builtinId);
+        }
+
         std::string name = parseIdentifier();
 
         Function* bound = runtime->lookup(name);
@@ -302,9 +371,19 @@ public:
     Function* parseApplication() {
         Function* left = parseAtom();
 
-        while (isAtomStart() && !looksLikeNewStatement()) {
+        while (true) {
+            // Save position BEFORE peek()/skipSpaces() modifies it
+            size_t posBeforePeek = pos;
+
+            if (!isAtomStart()) break;
+            if (looksLikeNewStatement(posBeforePeek)) {
+                // Reset pos so parent can rescan correctly
+                pos = posBeforePeek;
+                break;
+            }
+
             Function* right = parseAtom();
-            left = new Function(left, right);  // Application
+            left = new Function(left, right);
         }
 
         return left;
@@ -367,7 +446,21 @@ public:
         if (peek() == ':') {
             return parseBuiltin();
         }
-        return parseAssignment();
+
+        size_t savedPos = pos;
+
+        if (std::isalnum(peek()) || peek() == '_') {
+            std::string name = parseIdentifier();
+            skipSpaces();
+            if (peek() == '=') {
+                pos = savedPos;
+                return parseAssignment();
+            }
+        }
+
+        pos = savedPos;
+        Function* expr = parseApplication();
+        return {"", expr};
     }
 
     std::vector<std::pair<std::string, Function*>> parseProgram() {
@@ -403,13 +496,17 @@ inline void Runtime::run(const std::string& source) {
     while (parser.hasMore()) {
         auto [name, func] = parser.parseNextStatement();
 
-        if (isBuiltin(name)) {
-            Function* evaluated = func->eval();
+        if (name.empty()) {
+            Function* evaluated = func->eval(this);
+            delete evaluated;
+            delete func;
+        } else if (isBuiltin(name)) {
+            Function* evaluated = func->eval(this);
             callBuiltin(name, evaluated);
             delete evaluated;
             delete func;
         } else {
-            Function* evaluated = func->eval();
+            Function* evaluated = func->eval(this);
             bind(name, evaluated);
             delete func;
         }
