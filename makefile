@@ -5,8 +5,6 @@ CC = clang
 CXXFLAGS_BASE = -std=c++20 -Wall -Wextra -O3
 CFLAGS = -Wall -Wextra
 
-STATIC_FLAGS = -static -static-libstdc++
-
 # Detect WSL
 IS_WSL := $(shell grep -i microsoft /proc/version >/dev/null 2>&1 && echo 1 || echo 0)
 
@@ -47,12 +45,12 @@ $(LIB_OBJ): $(LIB_SRC) | $(OBJ_DIR)
 
 # Build test binary (C program using C++ library)
 $(TEST_BIN): $(TEST_SRC) $(LIB_OBJ) | $(DIST_DIR)
-	$(CC) $(CFLAGS) $(SRC_DIR)/$(TEST_SRC) $(LIB_OBJ) -o $@ $(LDFLAGS) -lstdc++ $(STATIC_FLAGS)
+	$(CC) $(CFLAGS) $(SRC_DIR)/$(TEST_SRC) $(LIB_OBJ) -o $@ $(LDFLAGS) -lstdc++ -static
 	strip $@
 
 # Build main binary (C++ program)
 $(MAIN_BIN): $(MAIN_SRC) $(LIB_OBJ) | $(DIST_DIR)
-	$(CXX) $(CXXFLAGS) $(SRC_DIR)/$(MAIN_SRC) $(LIB_OBJ) -o $@ $(LDFLAGS) $(STATIC_FLAGS)
+	$(CXX) $(CXXFLAGS) $(SRC_DIR)/$(MAIN_SRC) $(LIB_OBJ) -o $@ $(LDFLAGS) -static
 	strip $@
 
 # Clean build artifacts

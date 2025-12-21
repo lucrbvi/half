@@ -50,3 +50,7 @@ Then you can juste run `make` to build Half. It will produce three binary files 
 - `./dist/libhalf.o` (from `./libhalf.h` and `./libhalf.cpp`): the Half library
 
 Then you can use Half how you want. Have fun!
+
+# TODO
+
+1. The Half interpreter is strict, we should become lazy (it makes writing Y/Z combinators easier)

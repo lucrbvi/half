@@ -148,12 +148,11 @@ int main(int argc, char* argv[]) {
 
     std::unique_ptr<Runtime> runtime(new Runtime());
     runtime->registerBuiltin("show", builtin_show);
-    runtime->registerBuiltin("help", builtin_help);
     runtime->registerBuiltin("read", builtin_read);
 
-    if (strcmp(argv[1], "--debug") == 0) {
+    if (argc > 1 && strcmp(argv[1], "--debug") == 0) {
         runtime->registerBuiltin("ast", builtin_ast);
-        if (argv[2]) {
+        if (argc > 2) {
             argv[1] = argv[2];
             argv[2] = nullptr;
         }
@@ -161,6 +160,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (argc < 2) {
+        runtime->registerBuiltin("help", builtin_help);
         printf("Half Interactive Mode - type ':help \\x.x' to get started\n");
         interactive(*runtime);
         return 0;
