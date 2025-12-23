@@ -30,10 +30,10 @@
 
 // \x.x # this is an anonymous function
 typedef struct Function {
-    size_t id;              // id given by the runtime
+    size_t id;          
     bool visited;
     bool builtin;
-    char* name;             // for errors
+    char* name;
     size_t body_count;      // number of functions in body (max 2)
     struct Function **body; // dynamically allocated array of Function pointers
 } Function;
@@ -162,10 +162,77 @@ static inline Function* substitute(Function *node, size_t id, Function *arg) {
     return node;
 }
 
-// lazy reduction -> reduce only if a builtin needs it
-static inline Function* reduce_function(Function *root) {
+typedef struct {
+    // map names->functions and functions->names
+    char** names;
+    Function** functions;
+
+    size_t count;
+    size_t capacity;
+} Context;
+
+Context* new_context() {
+    Context* ctx = (Context*)malloc(sizeof(Context));
+    if (ctx == NULL) return NULL;
+    
+    ctx->capacity = 10;
+    ctx->count = 0;
+    ctx->names = (char**)malloc(ctx->capacity * sizeof(char*));
+    ctx->functions = (Function**)malloc(ctx->capacity * sizeof(Function*));
+    
+    if (ctx->names == NULL || ctx->functions == NULL) {
+        free(ctx->names);
+        free(ctx->functions);
+        free(ctx);
+        return NULL;
+    }
+    
+    return ctx;
+}
+
+void context_add(Context* ctx, char* name, Function* f) {
+    if (ctx->count >= ctx->capacity) {
+        ctx->capacity *= 2;
+        ctx->names = (char**)realloc(ctx->names, ctx->capacity * sizeof(char*));
+        ctx->functions = (Function**)realloc(ctx->functions, ctx->capacity * sizeof(Function*));
+    }
+    
+    ctx->names[ctx->count] = strdup(name);
+    ctx->functions[ctx->count] = f;
+    ctx->count++;
+}
+
+Function* context_get(Context* ctx, char* name) {
+    for (size_t i = 0; i < ctx->count; i++) {
+        if (strcmp(ctx->names[i], name) == 0) {
+            return ctx->functions[i];
+        }
+    }
+    return NULL;
+}
+
+void free_context(Context* ctx) {
+    if (ctx == NULL) return;
+    for (size_t i = 0; i < ctx->count; i++) {
+        free(ctx->names[i]);
+    }
+    free(ctx->names);
+    free(ctx->functions);
+    free(ctx);
+}
+
+// lazy reduction
+static inline Function* reduce_function(Function *root, Context* ctx) {
     if (root == NULL) return NULL;
     if (root->visited) return root;
+    
+    if (root->body_count == 0 && root->name != NULL && ctx != NULL) {
+        Function* resolved = context_get(ctx, root->name);
+        if (resolved != NULL) {
+            return resolved;
+        }
+    }
+    
     if (root->body == NULL || root->body_count == 0) {
         return root;
     }
@@ -179,7 +246,7 @@ static inline Function* reduce_function(Function *root) {
     root->visited = true;
 
     for (size_t i = 0; i < root->body_count; i++) {
-        root->body[i] = reduce_function(root->body[i]);
+        root->body[i] = reduce_function(root->body[i], ctx);
     }
 
     if (root->builtin && root->body_count == 2) {
@@ -187,7 +254,7 @@ static inline Function* reduce_function(Function *root) {
         Function *arg = root->body[1];
         if (fn != NULL && fn->body_count == 1 && fn->body != NULL) {
             Function *result = substitute(fn->body[0], fn->id, arg);
-            return result;
+            return reduce_function(result, ctx);
         }
     }
 
@@ -436,6 +503,7 @@ Parser* new_parser(Token** array, size_t array_size) {
     p->array = array;
     p->array_size = array_size;
     p->pos = 0;
+    p->functions = 0;
     return p;
 }
 
@@ -445,6 +513,11 @@ void parser_error(Parser* p, const char* msg) {
 
 bool parser_except(Parser* p, int type) {
     if (p->array[p->pos]->type == type) return true;
+    return false;
+}
+
+bool parser_except_error(Parser* p, int type) {
+    if (parser_except(p, type)) return true;
     char msg[128];
     snprintf(msg, sizeof(msg), "unexpected symbol '%s'", p->array[p->pos]->value);
     parser_error(p, msg);
@@ -456,56 +529,214 @@ bool parser_end(Parser* p) {
     return false;
 }
 
-void expression(Parser* p, Function** program) {
-    Token* current = p->array[p->pos];
+Function* expression(Parser* p, Function** program); // forward declaration - check bellow for 'expression'
 
-    switch(current->type){
-        case TOKEN_NAME:
-            break;
-        case TOKEN_LAMBDA:
-            break;
-        default:
-            char msg[128];
-            snprintf(msg, sizeof(msg), "unexpected symbol '%s'", current->value);
-            break;
+Function* lambda(Parser* p, Function** program) {
+    p->pos++;
+    
+    if (p->array[p->pos]->type != TOKEN_NAME) {
+        parser_error(p, "Expected parameter name after \\");
+        return NULL;
     }
+    
+    char* param_name = (char*)p->array[p->pos]->value;
+    p->pos++;
+    
+    if (p->array[p->pos]->type != TOKEN_DOT) {
+        parser_error(p, "Expected . after parameter name");
+        return NULL;
+    }
+    p->pos++;
+    
+    Function* body = expression(p, program);
+    
+    if (body == NULL) {
+        return NULL;
+    }
+    
+    Function* body_array[1] = {body};
+    Function* lambda_func = new_function(p->functions, param_name, body_array, 1);
+    
+    return lambda_func;
 }
 
-void statement(Parser* p, Function** program) {
+Function* expression(Parser* p, Function** program) {
+    if (parser_end(p)) {
+        return NULL;
+    }
+    
     Token* current = p->array[p->pos];
 
     switch(current->type) {
-        case TOKEN_NAME:
-            if (parser_except(p, TOKEN_NAME)) {
-                p->pos++;
-                if (parser_except(p, TOKEN_EQUAL)) {
-                    p->pos++;
-
-                }
+        case TOKEN_NAME: {
+            char* var_name = (char*)current->value;
+            p->pos++;
+            
+            if (!parser_end(p) && 
+                (p->array[p->pos]->type == TOKEN_NAME || 
+                 p->array[p->pos]->type == TOKEN_LAMBDA ||
+                 p->array[p->pos]->type == TOKEN_OPAREN)) {
+                
+                Function* fn = new_function(p->functions, var_name, NULL, 0);
+                Function* arg = expression(p, program);
+                
+                if (arg == NULL) return NULL;
+                
+                Function* app_body[2] = {fn, arg};
+                Function* app = new_function(p->functions, NULL, app_body, 2);
+                return app;
+            } else {
+                return new_function(p->functions, var_name, NULL, 0);
             }
-            break;
-        case TOKEN_COLON:
-            if (parser_except(p, TOKEN_NAME)) {
-                p->pos++;
-
+        }
+        
+        case TOKEN_LAMBDA:
+            return lambda(p, program);
+        
+        case TOKEN_OPAREN: {
+            p->pos++;
+            Function* expr = expression(p, program);
+            
+            if (p->array[p->pos]->type != TOKEN_CPAREN) {
+                parser_error(p, "Expected )");
+                return NULL;
             }
+            p->pos++;
+            
+            return expr;
+        }
+ 
         default: {
             char msg[128];
             snprintf(msg, sizeof(msg), "unexpected symbol '%s'", current->value);
             parser_error(p, msg);
+            return NULL;
+        }
+    }
+}
+
+void statement(Parser* p, Function** program) {
+    if (parser_end(p)) return;
+    
+    Token* current = p->array[p->pos];
+
+    switch(current->type) {
+        case TOKEN_NAME: {
+            char* var_name = (char*)current->value;
+            p->pos++;
+            
+            if (!parser_except(p, TOKEN_EQUAL)) {
+                parser_error(p, "Expected = after variable name");
+                return;
+            }
+            p->pos++;
+            
+            Function* expr_result = expression(p, program);
+            
+            if (expr_result == NULL) {
+                parser_error(p, "Failed to parse expression");
+                return;
+            }
+
+            Function* named_func = new_function(
+                p->functions, 
+                var_name,
+                expr_result->body_count > 0 ? expr_result->body : NULL,
+                expr_result->body_count
+            );
+            
+            if (named_func != NULL) {
+                program[p->functions] = named_func;
+                p->functions++;
+            }
+            
+            if (!parser_end(p) && parser_except(p, TOKEN_NEWLINE)) {
+                p->pos++;
+            }
             break;
         }
-   }
+        
+        case TOKEN_COLON: {
+            p->pos++;
+            
+            if (p->array[p->pos]->type != TOKEN_NAME) {
+                parser_error(p, "Expected builtin name after :");
+                return;
+            }
+            
+            char* builtin_name = (char*)p->array[p->pos]->value;
+            p->pos++;
+            
+            Function* expr_result = expression(p, program);
+            
+            if (expr_result == NULL) {
+                parser_error(p, "Failed to parse expression");
+                return;
+            }
+            
+            Function* builtin_func = new_function(
+                p->functions,
+                builtin_name,
+                expr_result->body_count > 0 ? expr_result->body : NULL,
+                expr_result->body_count
+            );
+            
+            if (builtin_func != NULL) {
+                builtin_func->builtin = true;
+                program[p->functions] = builtin_func;
+                p->functions++;
+            }
+            
+            if (!parser_end(p) && parser_except(p, TOKEN_NEWLINE)) {
+                p->pos++;
+            }
+            break;
+        }
+        
+        case TOKEN_NEWLINE: {
+            p->pos++;
+            break;
+        }
+        
+        default: {
+            char msg[128];
+            snprintf(msg, sizeof(msg), "unexpected symbol '%s'", current->value);
+            parser_error(p, msg);
+            p->pos++;
+            break;
+        }
+    }
 }
 
 struct ParserParseTuple {
-    Function** program; // we will execute this thing elemnt by element
+    Function** program; // we will execute this element by element
     size_t functions;
 };
 
 struct ParserParseTuple parser_parse(Parser* p) {
-    Function** program = (Function**)malloc(sizeof(Function*));
+    size_t capacity = 30;
+    Function** program = (Function**)malloc(capacity * sizeof(Function*));
+    if (program == NULL) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        struct ParserParseTuple error = {NULL, 0};
+        return error;
+    }
+    
+    p->functions = 0; // safe reset
+
     while(!parser_end(p)) {
+        if (p->functions >= capacity) {
+            capacity *= 2;
+            Function** temp = (Function**)realloc(program, capacity * sizeof(Function*));
+            if (temp == NULL) {
+                fprintf(stderr, "Error: Memory reallocation failed\n");
+                free(program);
+                struct ParserParseTuple error = {NULL, 0};
+                return error;
+            }
+            program = temp;
+        }
+
         statement(p, program);
     }
 
