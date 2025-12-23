@@ -112,6 +112,18 @@ static inline void free_function(Function *f) {
     free(f);
 }
 
+static inline char* find_param_name(Function* body, size_t id) {
+    if (body == NULL) return NULL;
+    if (body->body_count == 0 && body->id == id && body->name != NULL) {
+        return body->name;
+    }
+    for (size_t i = 0; i < body->body_count; i++) {
+        char* found = find_param_name(body->body[i], id);
+        if (found != NULL) return found;
+    }
+    return NULL;
+}
+
 static inline char* function_to_string(Function *f) {
     if (f == NULL) {
         return strdup("NULL");
@@ -127,8 +139,9 @@ static inline char* function_to_string(Function *f) {
         }
     } else if (f->body_count == 1) {
         char* body_str = function_to_string(f->body[0]);
-        if (f->name != NULL) {
-            snprintf(buffer, sizeof(buffer), "(\\%s.%s)", f->name, body_str);
+        char* param_name = find_param_name(f->body[0], f->id);
+        if (param_name != NULL) {
+            snprintf(buffer, sizeof(buffer), "(\\%s.%s)", param_name, body_str);
         } else {
             snprintf(buffer, sizeof(buffer), "(\\%zu.%s)", f->id, body_str);
         }
@@ -175,7 +188,7 @@ Context* new_context() {
     Context* ctx = (Context*)malloc(sizeof(Context));
     if (ctx == NULL) return NULL;
     
-    ctx->capacity = 10;
+    ctx->capacity = 30;
     ctx->count = 0;
     ctx->names = (char**)malloc(ctx->capacity * sizeof(char*));
     ctx->functions = (Function**)malloc(ctx->capacity * sizeof(Function*));
@@ -190,14 +203,14 @@ Context* new_context() {
     return ctx;
 }
 
-void context_add(Context* ctx, char* name, Function* f) {
+void context_add(Context* ctx, Function* f) {
     if (ctx->count >= ctx->capacity) {
         ctx->capacity *= 2;
         ctx->names = (char**)realloc(ctx->names, ctx->capacity * sizeof(char*));
         ctx->functions = (Function**)realloc(ctx->functions, ctx->capacity * sizeof(Function*));
     }
     
-    ctx->names[ctx->count] = strdup(name);
+    ctx->names[ctx->count] = strdup(f->name);
     ctx->functions[ctx->count] = f;
     ctx->count++;
 }
@@ -674,13 +687,14 @@ void statement(Parser* p, Function** program) {
                 return;
             }
             
+            Function* body_array[1] = {expr_result};
             Function* builtin_func = new_function(
                 p->functions,
                 builtin_name,
-                expr_result->body_count > 0 ? expr_result->body : NULL,
-                expr_result->body_count
+                body_array,
+                1
             );
-            
+
             if (builtin_func != NULL) {
                 builtin_func->builtin = true;
                 program[p->functions] = builtin_func;
@@ -744,6 +758,130 @@ struct ParserParseTuple parser_parse(Parser* p) {
     tuple.program = program;
     tuple.functions = p->functions;
     return tuple;
+}
+
+/*
+    4. Half Runtime
+
+    It takes the AST and interprate it within its context.
+    The Runtime run arbitrary code when it encouter a builtin function
+    (do not forget that a builtin function in Half is just a C function)
+*/
+
+struct Builtin {
+    char* name;
+    Function* (*func)(Function*);
+};
+
+typedef struct {
+    Context* context;
+    Function** program;
+    size_t functions;
+    struct Builtin** builtins;
+    size_t builtins_count;
+} Runtime;
+
+Runtime* new_runtime(Function** program, size_t functions) {
+    Runtime* rtm = (Runtime*)malloc(sizeof(Runtime));
+    if (rtm == NULL) return NULL;
+    
+    size_t capacity = 8;
+    struct Builtin** builtins = (struct Builtin**)malloc(capacity * sizeof(struct Builtin*));
+    if (builtins == NULL) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        free(rtm);
+        return NULL;
+    }
+    
+    rtm->builtins = builtins;
+    rtm->context = new_context();
+    rtm->program = program;
+    rtm->functions = functions;
+
+    if (rtm->context == NULL) {
+        free(rtm->context);
+        free(rtm);
+        return NULL;
+    }
+
+    return rtm;
+}
+
+void free_runtime(Runtime* rtm) {
+    if (rtm == NULL) return;
+    
+    if (rtm->program != NULL) {
+        for (size_t i = 0; i < rtm->functions; i++) {
+            free_function(rtm->program[i]);
+        }
+        free(rtm->program);
+    }
+    
+    if (rtm->context != NULL) {
+        free_context(rtm->context);
+    }
+
+    if (rtm->builtins != NULL) {
+        for (size_t i = 0; i < rtm->builtins_count; i++) {
+            if (rtm->builtins[i] != NULL) {
+                free(rtm->builtins[i]->name);
+                free(rtm->builtins[i]);
+            }
+        }
+        free(rtm->builtins);
+    }
+    
+    free(rtm);
+}
+
+static struct Builtin* runtime_find_builtin(Runtime* runtime, const char* name) {
+    for (size_t i = 0; i < runtime->builtins_count; i++) {
+        if (runtime->builtins[i] != NULL && 
+            strcmp(runtime->builtins[i]->name, name) == 0) {
+            return runtime->builtins[i];
+        }
+    }
+    return NULL;
+}
+
+void runtime_add_builtin(Runtime* runtime, const char* name, Function* (*func)(Function*)) {
+    if (runtime->builtins_count >= 8) {  // Augmenter la capacité si nécessaire
+        return;
+    }
+    
+    struct Builtin* bltn = (struct Builtin*)malloc(sizeof(struct Builtin));
+    if (bltn == NULL) return;
+    
+    bltn->name = strdup(name);
+    bltn->func = func;
+    
+    runtime->builtins[runtime->builtins_count++] = bltn;
+}
+
+void runtime_run(Runtime* runtime) {
+    for (size_t i = 0; i < runtime->functions; i++) {
+        Function* f = runtime->program[i];
+        
+        if (f->builtin && f->name != NULL) {
+            struct Builtin* builtin = runtime_find_builtin(runtime, f->name);
+            
+            if (builtin != NULL) {                
+                Function* arg = (f->body_count > 0 && f->body[0] != NULL) 
+                    ? reduce_function(f->body[0], runtime->context) 
+                    : NULL;
+                Function* result = builtin->func(arg);
+                
+                if (result != NULL) {
+                    result = reduce_function(result, runtime->context);
+                    char* str = function_to_string(result);
+                    printf("%s = %s\n", f->name, str);
+                    free(str);
+                }
+            }
+        } else {
+            context_add(runtime->context, f);
+        }
+    }
 }
 
 /*
