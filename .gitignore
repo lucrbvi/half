@@ -1,4 +1,4 @@
 .claude
 *.o
-dist
 .DS_Store
+main

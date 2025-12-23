@@ -1,5 +1,5 @@
 # The Half Embedding API Reference
 
-The Half interpreter is a C++ library compatible with C99. You can embed it in your C/C++ application or use FFI for other languages.
+The Half interpreter is written entierely in a single header file in C99. You can just take it and embed in our programs.
 
 ## C API
