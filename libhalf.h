@@ -16,7 +16,7 @@
              ⠰⣿⣿⣿⣿⡿⠁⠀⠀⠀⠀⠀⠀⠘⢿⣿⣿⣿⣿⣿⣿⡟⠁⠀
              ⠀⠙⠻⠿⠛⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠿⠟⠛⠁⠀⠀⠀
 
-    
+
     This project is licensed under the Boost Software License 1.0
 */
 
@@ -30,7 +30,7 @@
 
 // \x.x # this is an anonymous function
 typedef struct Function {
-    size_t id;          
+    size_t id;
     bool visited;
     bool builtin;
     char* name;
@@ -41,8 +41,10 @@ typedef struct Function {
 static inline void bind_names(Function *f, size_t id, char* name) {
     if (f == NULL) return;
 
-    if (f->body_count == 0 && f->id == id && f->name == NULL) {
-        f->name = strdup(name);
+    if (f->body_count == 0 && f->id == id) {
+        if (f->name == NULL) {
+            f->name = strdup(name);
+        }
     }
 
     for (size_t i = 0; i < f->body_count; i++) {
@@ -128,9 +130,9 @@ static inline char* function_to_string(Function *f) {
     if (f == NULL) {
         return strdup("NULL");
     }
-    
+
     char buffer[256];
-    
+
     if (f->body_count == 0) {
         if (f->name != NULL) {
             snprintf(buffer, sizeof(buffer), "%s", f->name);
@@ -153,7 +155,7 @@ static inline char* function_to_string(Function *f) {
         free(fn_str);
         free(arg_str);
     }
-    
+
     return strdup(buffer);
 }
 
@@ -187,19 +189,19 @@ typedef struct {
 Context* new_context() {
     Context* ctx = (Context*)malloc(sizeof(Context));
     if (ctx == NULL) return NULL;
-    
+
     ctx->capacity = 30;
     ctx->count = 0;
     ctx->names = (char**)malloc(ctx->capacity * sizeof(char*));
     ctx->functions = (Function**)malloc(ctx->capacity * sizeof(Function*));
-    
+
     if (ctx->names == NULL || ctx->functions == NULL) {
         free(ctx->names);
         free(ctx->functions);
         free(ctx);
         return NULL;
     }
-    
+
     return ctx;
 }
 
@@ -209,7 +211,7 @@ void context_add(Context* ctx, Function* f) {
         ctx->names = (char**)realloc(ctx->names, ctx->capacity * sizeof(char*));
         ctx->functions = (Function**)realloc(ctx->functions, ctx->capacity * sizeof(Function*));
     }
-    
+
     ctx->names[ctx->count] = strdup(f->name);
     ctx->functions[ctx->count] = f;
     ctx->count++;
@@ -238,14 +240,14 @@ void free_context(Context* ctx) {
 static inline Function* reduce_function(Function *root, Context* ctx) {
     if (root == NULL) return NULL;
     if (root->visited) return root;
-    
+
     if (root->body_count == 0 && root->name != NULL && ctx != NULL) {
         Function* resolved = context_get(ctx, root->name);
         if (resolved != NULL) {
             return resolved;
         }
     }
-    
+
     if (root->body == NULL || root->body_count == 0) {
         return root;
     }
@@ -274,7 +276,7 @@ static inline Function* reduce_function(Function *root, Context* ctx) {
     return root;
 }
 
-/* 
+/*
    2. Half Lexer
    We have a python-like syntax.
 
@@ -314,13 +316,13 @@ typedef struct {
 Lexer* new_lexer(const char* source) {
     Lexer* l = malloc(sizeof(Lexer));
     if (l == NULL) return NULL;
-    
+
     l->cursor = malloc(sizeof(Cursor));
     if (l->cursor == NULL) {
         free(l);
         return NULL;
     }
-    
+
     l->cursor->row = 0;
     l->cursor->line = 0;
     l->cursor->pos = 0;
@@ -383,7 +385,7 @@ static inline struct LexerLexTuple lexer_lex(Lexer* l) {
         token->line = l->cursor->line;
         token->type = TOKEN_INVALID;
         token->value = NULL;
-        
+
         // Skip whitespace
         if (c == ' ' || c == '\t') {
             continue;
@@ -396,7 +398,7 @@ static inline struct LexerLexTuple lexer_lex(Lexer* l) {
             array[counter++] = token;
             continue;
         }
-        
+
         // Skip comments
         if (c == '#') {
             lexer_skip_line(l);
@@ -411,7 +413,7 @@ static inline struct LexerLexTuple lexer_lex(Lexer* l) {
                 fprintf(stderr, "Error: Memory reallocation failed\n");
                 free(array);
                 struct LexerLexTuple error = {NULL, 0};
-                return error;            
+                return error;
             }
             array = temp;
         }
@@ -447,13 +449,13 @@ static inline struct LexerLexTuple lexer_lex(Lexer* l) {
                     char buffer[256] = {0};
                     buffer[0] = c;
                     int idx = 1;
-                    
-                    while (!lexer_source_end(l) && 
+
+                    while (!lexer_source_end(l) &&
                            (isalnum(lexer_get_char(l)) || lexer_get_char(l) == '_')) {
                         buffer[idx++] = lexer_get_next_char(l);
                         if (idx >= 255) break;
                     }
-                    
+
                     token->type = TOKEN_NAME;
                     token->value = strdup(buffer);
                 } else {
@@ -490,8 +492,8 @@ static inline void free_tokens(Token** tokens, size_t count) {
 }
 
 /*
-   3. Half Parser 
-   
+   3. Half Parser
+
    Grammar:
     program      ::= statement*
     statement    ::= comment | definition | builtin_call
@@ -546,30 +548,30 @@ Function* expression(Parser* p, Function** program); // forward declaration - ch
 
 Function* lambda(Parser* p, Function** program) {
     p->pos++;
-    
+
     if (p->array[p->pos]->type != TOKEN_NAME) {
         parser_error(p, "Expected parameter name after \\");
         return NULL;
     }
-    
+
     char* param_name = (char*)p->array[p->pos]->value;
     p->pos++;
-    
+
     if (p->array[p->pos]->type != TOKEN_DOT) {
         parser_error(p, "Expected . after parameter name");
         return NULL;
     }
     p->pos++;
-    
+
     Function* body = expression(p, program);
-    
+
     if (body == NULL) {
         return NULL;
     }
-    
+
     Function* body_array[1] = {body};
     Function* lambda_func = new_function(p->functions, param_name, body_array, 1);
-    
+
     return lambda_func;
 }
 
@@ -577,24 +579,24 @@ Function* expression(Parser* p, Function** program) {
     if (parser_end(p)) {
         return NULL;
     }
-    
+
     Token* current = p->array[p->pos];
 
     switch(current->type) {
         case TOKEN_NAME: {
             char* var_name = (char*)current->value;
             p->pos++;
-            
-            if (!parser_end(p) && 
-                (p->array[p->pos]->type == TOKEN_NAME || 
+
+            if (!parser_end(p) &&
+                (p->array[p->pos]->type == TOKEN_NAME ||
                  p->array[p->pos]->type == TOKEN_LAMBDA ||
                  p->array[p->pos]->type == TOKEN_OPAREN)) {
-                
+
                 Function* fn = new_function(p->functions, var_name, NULL, 0);
                 Function* arg = expression(p, program);
-                
+
                 if (arg == NULL) return NULL;
-                
+
                 Function* app_body[2] = {fn, arg};
                 Function* app = new_function(p->functions, NULL, app_body, 2);
                 return app;
@@ -602,23 +604,23 @@ Function* expression(Parser* p, Function** program) {
                 return new_function(p->functions, var_name, NULL, 0);
             }
         }
-        
+
         case TOKEN_LAMBDA:
             return lambda(p, program);
-        
+
         case TOKEN_OPAREN: {
             p->pos++;
             Function* expr = expression(p, program);
-            
+
             if (p->array[p->pos]->type != TOKEN_CPAREN) {
                 parser_error(p, "Expected )");
                 return NULL;
             }
             p->pos++;
-            
+
             return expr;
         }
- 
+
         default: {
             char msg[128];
             snprintf(msg, sizeof(msg), "unexpected symbol '%s'", current->value);
@@ -630,63 +632,63 @@ Function* expression(Parser* p, Function** program) {
 
 void statement(Parser* p, Function** program) {
     if (parser_end(p)) return;
-    
+
     Token* current = p->array[p->pos];
 
     switch(current->type) {
         case TOKEN_NAME: {
             char* var_name = (char*)current->value;
             p->pos++;
-            
+
             if (!parser_except(p, TOKEN_EQUAL)) {
                 parser_error(p, "Expected = after variable name");
                 return;
             }
             p->pos++;
-            
+
             Function* expr_result = expression(p, program);
-            
+
             if (expr_result == NULL) {
                 parser_error(p, "Failed to parse expression");
                 return;
             }
 
             Function* named_func = new_function(
-                p->functions, 
+                p->functions,
                 var_name,
                 expr_result->body_count > 0 ? expr_result->body : NULL,
                 expr_result->body_count
             );
-            
+
             if (named_func != NULL) {
                 program[p->functions] = named_func;
                 p->functions++;
             }
-            
+
             if (!parser_end(p) && parser_except(p, TOKEN_NEWLINE)) {
                 p->pos++;
             }
             break;
         }
-        
+
         case TOKEN_COLON: {
             p->pos++;
-            
+
             if (p->array[p->pos]->type != TOKEN_NAME) {
                 parser_error(p, "Expected builtin name after :");
                 return;
             }
-            
+
             char* builtin_name = (char*)p->array[p->pos]->value;
             p->pos++;
-            
+
             Function* expr_result = expression(p, program);
-            
+
             if (expr_result == NULL) {
                 parser_error(p, "Failed to parse expression");
                 return;
             }
-            
+
             Function* body_array[1] = {expr_result};
             Function* builtin_func = new_function(
                 p->functions,
@@ -700,18 +702,18 @@ void statement(Parser* p, Function** program) {
                 program[p->functions] = builtin_func;
                 p->functions++;
             }
-            
+
             if (!parser_end(p) && parser_except(p, TOKEN_NEWLINE)) {
                 p->pos++;
             }
             break;
         }
-        
+
         case TOKEN_NEWLINE: {
             p->pos++;
             break;
         }
-        
+
         default: {
             char msg[128];
             snprintf(msg, sizeof(msg), "unexpected symbol '%s'", current->value);
@@ -735,7 +737,7 @@ struct ParserParseTuple parser_parse(Parser* p) {
         struct ParserParseTuple error = {NULL, 0};
         return error;
     }
-    
+
     p->functions = 0; // safe reset
 
     while(!parser_end(p)) {
@@ -779,12 +781,13 @@ typedef struct {
     size_t functions;
     struct Builtin** builtins;
     size_t builtins_count;
+    size_t exec_i;
 } Runtime;
 
 Runtime* new_runtime(Function** program, size_t functions) {
     Runtime* rtm = (Runtime*)malloc(sizeof(Runtime));
     if (rtm == NULL) return NULL;
-    
+
     size_t capacity = 8;
     struct Builtin** builtins = (struct Builtin**)malloc(capacity * sizeof(struct Builtin*));
     if (builtins == NULL) {
@@ -792,11 +795,12 @@ Runtime* new_runtime(Function** program, size_t functions) {
         free(rtm);
         return NULL;
     }
-    
+
     rtm->builtins = builtins;
     rtm->context = new_context();
     rtm->program = program;
     rtm->functions = functions;
+    rtm->exec_i = 0;
 
     if (rtm->context == NULL) {
         free(rtm->context);
@@ -809,14 +813,14 @@ Runtime* new_runtime(Function** program, size_t functions) {
 
 void free_runtime(Runtime* rtm) {
     if (rtm == NULL) return;
-    
+
     if (rtm->program != NULL) {
         for (size_t i = 0; i < rtm->functions; i++) {
             free_function(rtm->program[i]);
         }
         free(rtm->program);
     }
-    
+
     if (rtm->context != NULL) {
         free_context(rtm->context);
     }
@@ -830,13 +834,13 @@ void free_runtime(Runtime* rtm) {
         }
         free(rtm->builtins);
     }
-    
+
     free(rtm);
 }
 
 static struct Builtin* runtime_find_builtin(Runtime* runtime, const char* name) {
     for (size_t i = 0; i < runtime->builtins_count; i++) {
-        if (runtime->builtins[i] != NULL && 
+        if (runtime->builtins[i] != NULL &&
             strcmp(runtime->builtins[i]->name, name) == 0) {
             return runtime->builtins[i];
         }
@@ -845,43 +849,86 @@ static struct Builtin* runtime_find_builtin(Runtime* runtime, const char* name) 
 }
 
 void runtime_add_builtin(Runtime* runtime, const char* name, Function* (*func)(Function*)) {
-    if (runtime->builtins_count >= 8) {  // Augmenter la capacité si nécessaire
+    if (runtime->builtins_count >= 8) {
         return;
     }
-    
+
     struct Builtin* bltn = (struct Builtin*)malloc(sizeof(struct Builtin));
     if (bltn == NULL) return;
-    
+
     bltn->name = strdup(name);
     bltn->func = func;
-    
+
     runtime->builtins[runtime->builtins_count++] = bltn;
 }
 
 void runtime_run(Runtime* runtime) {
     for (size_t i = 0; i < runtime->functions; i++) {
         Function* f = runtime->program[i];
-        
+        runtime->exec_i = i;
+
         if (f->builtin && f->name != NULL) {
             struct Builtin* builtin = runtime_find_builtin(runtime, f->name);
-            
-            if (builtin != NULL) {                
-                Function* arg = (f->body_count > 0 && f->body[0] != NULL) 
-                    ? reduce_function(f->body[0], runtime->context) 
+
+            if (builtin != NULL) {
+                Function* arg = (f->body_count > 0 && f->body[0] != NULL)
+                    ? reduce_function(f->body[0], runtime->context)
                     : NULL;
                 Function* result = builtin->func(arg);
-                
+
+                if (arg != NULL && arg->body_count == 0 && context_get(runtime->context, arg->name) == NULL) {
+                    fprintf(stderr, "Error: Undefined variable '%s'\n", arg->name);
+                    exit(1);
+                }
+
                 if (result != NULL) {
                     result = reduce_function(result, runtime->context);
-                    char* str = function_to_string(result);
-                    printf("%s = %s\n", f->name, str);
-                    free(str);
                 }
             }
         } else {
             context_add(runtime->context, f);
         }
     }
+}
+
+const char *get_filename_ext(const char *filename) {
+    const char *dot = strrchr(filename, '.');
+    if(!dot || dot == filename) return "";
+    return dot + 1;
+}
+
+const char* read_script(const char* path) {
+    FILE* fptr;
+    fptr = fopen(path, "r");
+    if (fptr == NULL) {
+        fprintf(stderr, "The file is not opened.");
+    }
+
+    if (strcmp(get_filename_ext(path), "half") != 0 || strcmp(get_filename_ext(path), "hl") != 0) {
+        fprintf(stderr, "Invalid file extension. Expected '.half' or '.hl'");
+        exit(1);
+    }
+
+    fseek(fptr, 0, SEEK_END);
+    long fsize = ftell(fptr);
+    fseek(fptr, 0, SEEK_SET);
+    char *string = malloc(fsize + 1);
+    fread(string, fsize, 1, fptr);
+    fclose(fptr);
+    string[fsize] = 0;
+
+    return string;
+}
+
+struct ParserParseTuple lex_parse_script(const char* source) {
+    Lexer* l = new_lexer(source);
+    struct LexerLexTuple lout = lexer_lex(l);
+    free_lexer(l);
+
+    Parser* p = new_parser(lout.array, lout.counter);
+    struct ParserParseTuple pout = parser_parse(p);
+    free(p);
+    return pout;
 }
 
 /*
