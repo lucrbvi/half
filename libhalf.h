@@ -41,10 +41,8 @@ typedef struct Function {
 static inline void bind_names(Function *f, size_t id, char* name) {
     if (f == NULL) return;
 
-    if (f->body_count == 0 && f->id == id) {
-        if (f->name == NULL) {
-            f->name = strdup(name);
-        }
+    if (f->body_count == 0 && f->name != NULL && strcmp(f->name, name) == 0) {
+        f->id = id;
     }
 
     for (size_t i = 0; i < f->body_count; i++) {
@@ -547,6 +545,9 @@ bool parser_end(Parser* p) {
 Function* expression(Parser* p, Function** program); // forward declaration - check bellow for 'expression'
 
 Function* lambda(Parser* p, Function** program) {
+    static size_t lambda_id = 0;
+    size_t my_id = lambda_id++;
+
     p->pos++;
 
     if (p->array[p->pos]->type != TOKEN_NAME) {
@@ -570,7 +571,7 @@ Function* lambda(Parser* p, Function** program) {
     }
 
     Function* body_array[1] = {body};
-    Function* lambda_func = new_function(p->functions, param_name, body_array, 1);
+    Function* lambda_func = new_function(my_id, param_name, body_array, 1);
 
     return lambda_func;
 }
@@ -619,6 +620,36 @@ Function* expression(Parser* p, Function** program) {
             p->pos++;
 
             return expr;
+        }
+
+        case TOKEN_COLON: {
+            p->pos++;
+
+            if (p->array[p->pos]->type != TOKEN_NAME) {
+                parser_error(p, "Expected builtin name after :");
+                return NULL;
+            }
+
+            char* builtin_name = (char*)p->array[p->pos]->value;
+            p->pos++;
+
+            Function* arg = NULL;
+            if (!parser_end(p) &&
+                p->array[p->pos]->type != TOKEN_NEWLINE &&
+                p->array[p->pos]->type != TOKEN_CPAREN) {
+                arg = expression(p, program);
+            }
+
+            Function* builtin_func;
+            if (arg != NULL) {
+                Function* body_array[1] = {arg};
+                builtin_func = new_function(p->functions, builtin_name, body_array, 1);
+            } else {
+                builtin_func = new_function(p->functions, builtin_name, NULL, 0);
+            }
+            builtin_func->builtin = true;
+
+            return builtin_func;
         }
 
         default: {
@@ -784,6 +815,119 @@ typedef struct {
     size_t exec_i;
 } Runtime;
 
+int church_bool_value(Function* f) {
+    if (f == NULL || f->body_count != 1) return -1;
+
+    Function* inner = f->body[0];
+    if (inner == NULL || inner->body_count != 1) return -1;
+
+    Function* result = inner->body[0];
+    if (result == NULL || result->body_count != 0) return -1;
+
+    if (result->id == f->id) return 1;
+    if (result->id == inner->id) return 0;
+    return -1;
+}
+
+// :show builtin
+
+unsigned char byte = 0;
+int bit_pos = 0;
+
+void write_bit(int bit) {
+    byte |= (bit << (7 - bit_pos));
+    bit_pos++;
+    if (bit_pos == 8) {
+        putchar(byte);
+        byte = 0;
+        bit_pos = 0;
+    }
+}
+
+void flush_bits() {
+    if (bit_pos > 0) {
+        putchar(byte);
+        byte = 0;
+        bit_pos = 0;
+    }
+}
+
+Function* show_builtin(Function* f) {
+    int b = church_bool_value(f);
+    if (b >= 0) {
+        write_bit(b);
+    }
+    return f;
+}
+
+void runtime_add_builtin(Runtime* runtime, const char* name, Function* (*func)(Function*)) {
+    if (runtime->builtins_count >= 8) {
+        return;
+    }
+
+    struct Builtin* bltn = (struct Builtin*)malloc(sizeof(struct Builtin));
+    if (bltn == NULL) return;
+
+    bltn->name = strdup(name);
+    bltn->func = func;
+
+    runtime->builtins[runtime->builtins_count++] = bltn;
+}
+
+// :read builtin
+
+const char* input_data = NULL;
+size_t input_pos = 0;
+int input_bit = 0;
+
+Function* make_church_true() {
+    // \x.\y.x
+    static size_t id = 10000;
+    Function* x_ref = new_function(id, "x", NULL, 0);
+    Function* body_array1[1] = {x_ref};
+    Function* inner = new_function(id + 1, "y", body_array1, 1);
+    Function* body_array2[1] = {inner};
+    Function* outer = new_function(id, "x", body_array2, 1);
+    id += 2;
+    return outer;
+}
+
+Function* make_church_false() {
+    // \x.\y.y
+    static size_t id = 20000;
+    Function* y_ref = new_function(id + 1, "y", NULL, 0);
+    Function* body_array1[1] = {y_ref};
+    Function* inner = new_function(id + 1, "y", body_array1, 1);
+    Function* body_array2[1] = {inner};
+    Function* outer = new_function(id, "x", body_array2, 1);
+    id += 2;
+    return outer;
+}
+
+int read_bit() {
+    if (input_data == NULL || input_data[input_pos] == '\0') {
+        return -1;
+    }
+
+    int bit = (input_data[input_pos] >> (7 - input_bit)) & 1;
+    input_bit++;
+
+    if (input_bit == 8) {
+        input_bit = 0;
+        input_pos++;
+    }
+
+    return bit;
+}
+
+Function* read_builtin(Function* f) {
+    int bit = read_bit();
+    if (bit < 0) {
+        return f;
+    }
+    return bit ? make_church_true() : make_church_false();
+}
+
 Runtime* new_runtime(Function** program, size_t functions) {
     Runtime* rtm = (Runtime*)malloc(sizeof(Runtime));
     if (rtm == NULL) return NULL;
@@ -807,6 +951,9 @@ Runtime* new_runtime(Function** program, size_t functions) {
         free(rtm);
         return NULL;
     }
+
+    runtime_add_builtin(rtm, "show", show_builtin);
+    runtime_add_builtin(rtm, "read", read_builtin);
 
     return rtm;
 }
@@ -848,18 +995,23 @@ static struct Builtin* runtime_find_builtin(Runtime* runtime, const char* name) 
     return NULL;
 }
 
-void runtime_add_builtin(Runtime* runtime, const char* name, Function* (*func)(Function*)) {
-    if (runtime->builtins_count >= 8) {
-        return;
+Function* eval_builtin(Runtime* runtime, Function* f) {
+    if (f == NULL) return NULL;
+
+    if (f->builtin && f->name != NULL) {
+        struct Builtin* builtin = runtime_find_builtin(runtime, f->name);
+        if (builtin != NULL) {
+            Function* arg = (f->body_count > 0 && f->body[0] != NULL)
+                ? eval_builtin(runtime, f->body[0])
+                : NULL;
+            if (arg != NULL) {
+                arg = reduce_function(arg, runtime->context);
+            }
+            return builtin->func(arg);
+        }
     }
 
-    struct Builtin* bltn = (struct Builtin*)malloc(sizeof(struct Builtin));
-    if (bltn == NULL) return;
-
-    bltn->name = strdup(name);
-    bltn->func = func;
-
-    runtime->builtins[runtime->builtins_count++] = bltn;
+    return reduce_function(f, runtime->context);
 }
 
 void runtime_run(Runtime* runtime) {
@@ -872,14 +1024,9 @@ void runtime_run(Runtime* runtime) {
 
             if (builtin != NULL) {
                 Function* arg = (f->body_count > 0 && f->body[0] != NULL)
-                    ? reduce_function(f->body[0], runtime->context)
+                    ? eval_builtin(runtime, f->body[0])
                     : NULL;
                 Function* result = builtin->func(arg);
-
-                if (arg != NULL && arg->body_count == 0 && context_get(runtime->context, arg->name) == NULL) {
-                    fprintf(stderr, "Error: Undefined variable '%s'\n", arg->name);
-                    exit(1);
-                }
 
                 if (result != NULL) {
                     result = reduce_function(result, runtime->context);
@@ -889,6 +1036,7 @@ void runtime_run(Runtime* runtime) {
             context_add(runtime->context, f);
         }
     }
+    flush_bits();
 }
 
 const char *get_filename_ext(const char *filename) {
