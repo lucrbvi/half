@@ -442,8 +442,7 @@ static inline struct LexerLexTuple lexer_lex(Lexer* l) {
                 token->value = strdup(")");
                 break;
             default:
-                // Handle identifiers (alphanumeric + underscore)
-                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+                if (isalnum(c) || c == '_') {
                     char buffer[256] = {0};
                     buffer[0] = c;
                     int idx = 1;
@@ -618,6 +617,21 @@ Function* expression(Parser* p, Function** program) {
                 return NULL;
             }
             p->pos++;
+
+            // Vérifier si c'est une application (nouvelle partie)
+            if (!parser_end(p) &&
+                (p->array[p->pos]->type == TOKEN_NAME ||
+                p->array[p->pos]->type == TOKEN_LAMBDA ||
+                p->array[p->pos]->type == TOKEN_OPAREN ||
+                p->array[p->pos]->type == TOKEN_COLON)) {
+
+                Function* arg = expression(p, program);
+                if (arg == NULL) return expr;
+
+                Function* app_body[2] = {expr, arg};
+                Function* app = new_function(p->functions, NULL, app_body, 2);
+                return app;
+            }
 
             return expr;
         }
@@ -880,6 +894,10 @@ const char* input_data = NULL;
 size_t input_pos = 0;
 int input_bit = 0;
 
+void update_input_data(const char* new_input) {
+    input_data = new_input;
+}
+
 Function* make_church_true() {
     // \x.\y.x
     static size_t id = 10000;
@@ -998,6 +1016,10 @@ static struct Builtin* runtime_find_builtin(Runtime* runtime, const char* name) 
 Function* eval_builtin(Runtime* runtime, Function* f) {
     if (f == NULL) return NULL;
 
+    for (size_t i = 0; i < f->body_count; i++) {
+        f->body[i] = eval_builtin(runtime, f->body[i]);
+    }
+
     if (f->builtin && f->name != NULL) {
         struct Builtin* builtin = runtime_find_builtin(runtime, f->name);
         if (builtin != NULL) {
@@ -1006,6 +1028,7 @@ Function* eval_builtin(Runtime* runtime, Function* f) {
                 : NULL;
             if (arg != NULL) {
                 arg = reduce_function(arg, runtime->context);
+                arg = eval_builtin(runtime, arg);
             }
             return builtin->func(arg);
         }
@@ -1039,7 +1062,7 @@ void runtime_run(Runtime* runtime) {
     flush_bits();
 }
 
-const char *get_filename_ext(const char *filename) {
+const char* get_filename_ext(const char *filename) {
     const char *dot = strrchr(filename, '.');
     if(!dot || dot == filename) return "";
     return dot + 1;
@@ -1049,11 +1072,11 @@ const char* read_script(const char* path) {
     FILE* fptr;
     fptr = fopen(path, "r");
     if (fptr == NULL) {
-        fprintf(stderr, "The file is not opened.");
+        fprintf(stderr, "The file is not opened.\n");
     }
 
-    if (strcmp(get_filename_ext(path), "half") != 0 || strcmp(get_filename_ext(path), "hl") != 0) {
-        fprintf(stderr, "Invalid file extension. Expected '.half' or '.hl'");
+    if (strcmp(get_filename_ext(path), "half") != 0 && strcmp(get_filename_ext(path), "hl") != 0) {
+        fprintf(stderr, "Invalid file extension. Expected '.half' or '.hl'\n");
         exit(1);
     }
 

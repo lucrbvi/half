@@ -1,19 +1,8 @@
+# hi.half
+
 1 = \x.\y.x
 0 = \x.\y.y
 
-byte = \a.\b.\c.\d.\e.\f.\g.\h.0 (:show a) (0 (:show b) (0 (:show c) (0 (:show d) (0 (:show e) (0 (:show f) (0 (:show g) (:show h)))))))
+byte = \x.(:show x)
 
-H = \x.byte 0 1 0 0 1 0 0 0
-e = \x.byte 0 1 1 0 0 1 0 1
-l = \x.byte 0 1 1 0 1 1 0 0
-o = \x.byte 0 1 1 0 1 1 1 1
-w = \x.byte 0 1 1 1 0 1 1 1
-r = \x.byte 0 1 1 1 0 0 1 0
-d = \x.byte 0 1 1 0 0 1 0 0
-
-comma = \x.byte 0 0 1 0 1 1 0 0
-space = \x.byte 0 0 1 0 0 0 0 0
-newline = \x.byte 0 0 0 0 1 0 1 0
-excl = \x.byte 0 0 1 0 0 0 0 1
-
-:show newline (excl (d (l (r (o (w (space (comma (o (l (l (e (H (\x.x))))))))))))))
+:show byte 1
